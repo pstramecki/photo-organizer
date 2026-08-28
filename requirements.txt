@@ -1,4 +1,8 @@
-# Optional. The app works without it (falls back to file modified time,
-# or to exiftool if that's installed), but Pillow adds EXIF date reading
-# for JPEG/PNG/TIFF without needing the external exiftool binary.
+# Both optional. The app works without them -- Pillow adds EXIF date
+# reading for JPEG/PNG/TIFF without needing the external exiftool binary
+# (falls back to file modified time if neither is available). reverse_geocoder
+# enables "Group by location" (offline reverse geocoding -- pulls in numpy
+# and scipy, plus a bundled ~35k-city dataset); without it the checkbox is
+# just disabled in the app.
 Pillow>=10.0
+reverse_geocoder>=1.5

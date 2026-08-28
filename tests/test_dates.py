@@ -42,7 +42,7 @@ def test_get_file_date_uses_exiftool_when_available(tmp_path, monkeypatch):
     f.write_bytes(b'irrelevant')
 
     class FakeCompletedProcess:
-        stdout = '2019:07:04 10:00:00\n'
+        stdout = '2019:07:04 10:00:00\n-\n'  # DateTimeOriginal present, CreateDate missing
 
     monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: FakeCompletedProcess())
 
@@ -50,6 +50,39 @@ def test_get_file_date_uses_exiftool_when_available(tmp_path, monkeypatch):
 
     assert source == DateSource.EXIF
     assert dt == datetime(2019, 7, 4, 10, 0, 0)
+
+
+def test_get_file_date_falls_back_to_createdate_when_datetimeoriginal_missing(tmp_path, monkeypatch):
+    # Regression: DateTimeOriginal is EXIF-only and doesn't exist in
+    # QuickTime/MP4 metadata -- verified against a real exiftool binary and
+    # a real video's CreateDate. Without this fallback, videos never got a
+    # real exiftool date at all and silently used file mtime instead.
+    f = tmp_path / 'video.mp4'
+    f.write_bytes(b'irrelevant')
+
+    class FakeCompletedProcess:
+        stdout = '-\n2015:04:28 12:00:00\n'  # DateTimeOriginal missing, CreateDate present
+
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: FakeCompletedProcess())
+
+    dt, source = get_file_date(f, exiftool_path='exiftool')
+
+    assert source == DateSource.EXIF
+    assert dt == datetime(2015, 4, 28, 12, 0, 0)
+
+
+def test_get_file_date_prefers_datetimeoriginal_over_createdate_when_both_present(tmp_path, monkeypatch):
+    f = tmp_path / 'photo.jpg'
+    f.write_bytes(b'irrelevant')
+
+    class FakeCompletedProcess:
+        stdout = '2019:07:04 10:00:00\n2019:07:04 09:00:00\n'  # deliberately different
+
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: FakeCompletedProcess())
+
+    dt, source = get_file_date(f, exiftool_path='exiftool')
+
+    assert dt == datetime(2019, 7, 4, 10, 0, 0)  # DateTimeOriginal wins
 
 
 def test_get_file_date_falls_back_when_exiftool_errors(tmp_path, monkeypatch):

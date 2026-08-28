@@ -18,16 +18,19 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir pyinstaller Pillow
+RUN pip install --no-cache-dir pyinstaller Pillow reverse_geocoder
 
 COPY photo_organizer/ ./photo_organizer/
 COPY run.py .
 
 # Build inside the image so the layer is cached across container runs.
+# --collect-all reverse_geocoder bundles its ~35k-city dataset file, which
+# PyInstaller's static analysis can't discover on its own.
 RUN pyinstaller \
         --onefile \
         --noconfirm \
         --name PhotoOrganizer \
+        --collect-all reverse_geocoder \
         run.py
 
 # Container run copies the built binary to the mounted /output volume.

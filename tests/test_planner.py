@@ -10,7 +10,11 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 from photo_organizer import HashDb, MediaKind, Operation, PlanOperation, analyze, apply_plan
+from photo_organizer.dates import get_file_date
+from photo_organizer.planner import _consecutive_day_runs
 
 
 class FakeReporter:
@@ -318,3 +322,178 @@ def test_apply_plan_saves_hash_database(tmp_path):
     db = HashDb(out_dir)
     db.load()
     assert db.data.get('known-hash') == str(dest)
+
+
+# ---- _consecutive_day_runs() ----
+
+@pytest.mark.parametrize('days,expected', [
+    ([15], [(15, 15)]),
+    ([15, 16, 17, 18], [(15, 18)]),
+    ([15, 16, 20], [(15, 16), (20, 20)]),
+    ([1, 3, 5], [(1, 1), (3, 3), (5, 5)]),
+])
+def test_consecutive_day_runs(days, expected):
+    assert _consecutive_day_runs(days) == expected
+
+
+# ---- analyze(): location grouping ----
+# get_date_and_gps()/city_for() are monkeypatched throughout -- real
+# EXIF/GPS/geocoding behavior is covered separately in test_dates.py,
+# test_gps.py, test_exif_lookup.py and test_geocoding.py.
+
+def _stub_location(monkeypatch, gps_by_name=None, default_gps=None, track_calls=None):
+    """Patch get_date_and_gps() to keep real (mtime-derived) dates -- so
+    tests can still set expectations via _make_file(mtime=...) -- while
+    controlling just the GPS half. gps_by_name maps filename -> gps
+    tuple/None, falling back to default_gps for names not in the map."""
+    def fake(f, exiftool_path):
+        if track_calls is not None:
+            track_calls.append(f)
+        dt, source = get_file_date(f, '')
+        gps = (gps_by_name or {}).get(f.name, default_gps)
+        return dt, source, gps
+
+    monkeypatch.setattr('photo_organizer.planner.get_date_and_gps', fake)
+
+
+def test_analyze_ignores_location_by_default(tmp_path, monkeypatch):
+    in_dir, out_dir = tmp_path / 'in', tmp_path / 'out'
+    _make_file(in_dir / 'a.jpg', b'1', mtime=datetime(2015, 4, 28))
+
+    calls = []
+    _stub_location(monkeypatch, default_gps=(52.23, 21.01), track_calls=calls)
+
+    plan = analyze(in_dir=in_dir, out_dir=out_dir, exiftool_path='', reporter=FakeReporter())
+
+    assert calls == []  # get_date_and_gps never invoked when group_by_location is False (the default)
+    assert plan[0].dest == out_dir / '2015' / '04' / 'a.jpg'
+
+
+def test_analyze_falls_back_to_plain_bucket_when_city_not_found(tmp_path, monkeypatch):
+    in_dir, out_dir = tmp_path / 'in', tmp_path / 'out'
+    _make_file(in_dir / 'a.jpg', b'1', mtime=datetime(2015, 4, 28))
+
+    _stub_location(monkeypatch, default_gps=None)
+
+    plan = analyze(in_dir=in_dir, out_dir=out_dir, exiftool_path='', group_by_location=True,
+                    reporter=FakeReporter())
+
+    assert plan[0].dest == out_dir / '2015' / '04' / 'a.jpg'
+
+
+def test_analyze_groups_a_single_located_day_as_yyyy_mm_dd_city(tmp_path, monkeypatch):
+    in_dir, out_dir = tmp_path / 'in', tmp_path / 'out'
+    _make_file(in_dir / 'a.jpg', b'1', mtime=datetime(2015, 4, 28))
+
+    _stub_location(monkeypatch, default_gps=(52.23, 21.01))
+    monkeypatch.setattr('photo_organizer.planner.city_for', lambda lat, lon: 'Warsaw')
+
+    plan = analyze(in_dir=in_dir, out_dir=out_dir, exiftool_path='', group_by_location=True,
+                    reporter=FakeReporter())
+
+    assert len(plan) == 1
+    assert plan[0].dest == out_dir / '2015' / '04' / '2015-04-28 Warsaw' / 'a.jpg'
+
+
+def test_analyze_merges_consecutive_located_days_into_a_range_folder(tmp_path, monkeypatch):
+    in_dir, out_dir = tmp_path / 'in', tmp_path / 'out'
+    for day in (15, 16, 17, 18):
+        _make_file(in_dir / f'day{day}.jpg', str(day).encode(), mtime=datetime(2015, 4, day))
+
+    _stub_location(monkeypatch, default_gps=(52.23, 21.01))
+    monkeypatch.setattr('photo_organizer.planner.city_for', lambda lat, lon: 'Warsaw')
+
+    plan = analyze(in_dir=in_dir, out_dir=out_dir, exiftool_path='', group_by_location=True,
+                    reporter=FakeReporter())
+
+    assert len(plan) == 4
+    expected_folder = out_dir / '2015' / '04' / '2015-04-15-18 Warsaw'
+    assert all(op.dest.parent == expected_folder for op in plan)
+
+
+def test_analyze_splits_the_range_at_a_day_with_no_located_photo(tmp_path, monkeypatch):
+    in_dir, out_dir = tmp_path / 'in', tmp_path / 'out'
+    for day in (15, 16, 20):  # 17-19 have no located photo -- breaks the run
+        _make_file(in_dir / f'day{day}.jpg', str(day).encode(), mtime=datetime(2015, 4, day))
+
+    _stub_location(monkeypatch, default_gps=(52.23, 21.01))
+    monkeypatch.setattr('photo_organizer.planner.city_for', lambda lat, lon: 'Warsaw')
+
+    plan = analyze(in_dir=in_dir, out_dir=out_dir, exiftool_path='', group_by_location=True,
+                    reporter=FakeReporter())
+
+    folders = {op.dest.parent for op in plan}
+    assert folders == {
+        out_dir / '2015' / '04' / '2015-04-15-16 Warsaw',
+        out_dir / '2015' / '04' / '2015-04-20 Warsaw',
+    }
+
+
+def test_analyze_keeps_video_and_photo_location_folders_separate(tmp_path, monkeypatch):
+    in_dir, out_dir = tmp_path / 'in', tmp_path / 'out'
+    _make_file(in_dir / 'a.jpg', b'1', mtime=datetime(2015, 4, 28))
+    _make_file(in_dir / 'a.mp4', b'2', mtime=datetime(2015, 4, 28))
+
+    _stub_location(monkeypatch, default_gps=(52.23, 21.01))
+    monkeypatch.setattr('photo_organizer.planner.city_for', lambda lat, lon: 'Warsaw')
+
+    plan = analyze(in_dir=in_dir, out_dir=out_dir, exiftool_path='', group_by_location=True,
+                    reporter=FakeReporter())
+
+    dests = {op.kind: op.dest for op in plan}
+    assert dests[MediaKind.PHOTO] == out_dir / '2015' / '04' / '2015-04-28 Warsaw' / 'a.jpg'
+    assert dests[MediaKind.VIDEO] == out_dir / 'videos' / '2015' / '04' / '2015-04-28 Warsaw' / 'a.mp4'
+
+
+def test_analyze_logs_grouped_by_location_count(tmp_path, monkeypatch):
+    in_dir, out_dir = tmp_path / 'in', tmp_path / 'out'
+    _make_file(in_dir / 'a.jpg', b'1', mtime=datetime(2015, 4, 28))
+
+    _stub_location(monkeypatch, default_gps=(52.23, 21.01))
+    monkeypatch.setattr('photo_organizer.planner.city_for', lambda lat, lon: 'Warsaw')
+
+    reporter = FakeReporter()
+    analyze(in_dir=in_dir, out_dir=out_dir, exiftool_path='', group_by_location=True, reporter=reporter)
+
+    assert reporter.has_log_containing('Grouped by location  : 1')
+
+
+def test_analyze_does_not_count_a_duplicate_toward_grouped_by_location(tmp_path, monkeypatch):
+    # Regression: the "located" count used to increment as soon as a city
+    # resolved, before the duplicate check that can still drop the file --
+    # overstating how many files actually landed in a location folder.
+    in_dir, out_dir = tmp_path / 'in', tmp_path / 'out'
+    _make_file(in_dir / 'a.jpg', b'same-bytes', mtime=datetime(2015, 4, 28))
+    _make_file(in_dir / 'b.jpg', b'same-bytes', mtime=datetime(2015, 4, 28))  # duplicate of a.jpg
+
+    _stub_location(monkeypatch, default_gps=(52.23, 21.01))
+    monkeypatch.setattr('photo_organizer.planner.city_for', lambda lat, lon: 'Warsaw')
+
+    reporter = FakeReporter()
+    plan = analyze(in_dir=in_dir, out_dir=out_dir, exiftool_path='', group_by_location=True, reporter=reporter)
+
+    assert len(plan) == 1  # the duplicate never made it into the plan
+    assert reporter.has_log_containing('Grouped by location  : 1')  # not 2
+
+
+def test_analyze_groups_by_the_sanitized_city_name_consistently(tmp_path, monkeypatch):
+    # Regression: grouping used to key on the raw city string while the
+    # destination folder used the sanitized one, so two raw names that
+    # sanitize to the same text could form separate groups yet collide on
+    # the same physical folder without the code ever noticing.
+    in_dir, out_dir = tmp_path / 'in', tmp_path / 'out'
+    _make_file(in_dir / 'a.jpg', b'1', mtime=datetime(2015, 4, 28))
+    _make_file(in_dir / 'b.jpg', b'2', mtime=datetime(2015, 4, 29))
+
+    # Different (fake) coordinates per file, so city_for can return two
+    # distinct raw names that sanitize down to the identical string.
+    _stub_location(monkeypatch, gps_by_name={'a.jpg': (52.23, 21.01), 'b.jpg': (52.24, 21.02)})
+    monkeypatch.setattr('photo_organizer.planner.city_for',
+                         lambda lat, lon: 'Warsaw?' if lat == 52.23 else 'Warsaw')
+
+    plan = analyze(in_dir=in_dir, out_dir=out_dir, exiftool_path='', group_by_location=True,
+                    reporter=FakeReporter())
+
+    assert len(plan) == 2
+    # Consecutive days, same sanitized city -> merged into one range folder.
+    assert {op.dest.parent for op in plan} == {out_dir / '2015' / '04' / '2015-04-28-29 Warsaw'}

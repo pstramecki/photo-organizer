@@ -3,6 +3,7 @@ resolution."""
 from __future__ import annotations
 
 import random
+import re
 import sys
 from pathlib import Path
 
@@ -15,6 +16,13 @@ def app_dir() -> Path:
     if getattr(sys, 'frozen', False):
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent.parent
+
+
+def sanitize_component(name: str) -> str:
+    """Strip filesystem-illegal characters from a single path component
+    (used for the "YYYY-MM-DD City" location-grouping folder)."""
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', name)
+    return re.sub(r'\s+', ' ', name).strip().rstrip('. ') or 'Unknown'
 
 
 def unique_dest(dest: Path, used: set[str]) -> Path:

@@ -26,7 +26,7 @@ source .buildenv/bin/activate
 echo
 echo "=== Installing build dependencies ==="
 python -m pip install --upgrade pip
-python -m pip install pyinstaller Pillow
+python -m pip install pyinstaller Pillow reverse_geocoder
 
 echo
 echo "=== Building single-file executable ==="
@@ -35,6 +35,7 @@ pyinstaller \
   --windowed \
   --noconfirm \
   --name PhotoOrganizer \
+  --collect-all reverse_geocoder \
   run.py
 
 echo

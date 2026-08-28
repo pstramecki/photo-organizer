@@ -23,6 +23,25 @@ file's last-modified time. Duplicate content (by SHA-256) is skipped and
 tracked in `<OUTPUT>/hashes.json`, so re-running the tool on the same input
 never copies the same photo twice — even across separate runs.
 
+### Optional: group by location
+
+Tick **"Group by location"** to add a `YYYY-MM-DD City` folder for any
+photo/video whose GPS EXIF resolves to a place — entirely offline, no API
+key, no network call, so a photo's location never leaves your machine.
+Consecutive days at the same city are merged into one range folder, so a
+4-day trip with a located photo every day becomes one
+`2015-04-15-18 Warsaw` folder instead of four separate day folders; a day
+with a gap in it (no located photo) splits the range. Files with no
+resolvable GPS — most of a typical library — fall back to the plain
+`YYYY/MM` bucket:
+
+```
+<OUTPUT>/2015/04/
+├── 12/<photos from Apr 12, no GPS>
+├── 2015-04-15-18 Warsaw/<a 4-day trip, located every day>
+└── 2015-04-25 Warsaw/<a single located day>
+```
+
 ---
 
 ## Do I need Python installed?
@@ -44,13 +63,17 @@ Pick one:
   uploads binaries as artifacts. Tag a commit with `v*` (e.g. `v1.0`) to
   attach the binaries to a GitHub Release automatically.
 
-Optional dependency for EXIF reading without the external `exiftool`
-binary: `pip install -r requirements.txt` (installs `Pillow`).
+`pip install -r requirements.txt` installs the optional extras: `Pillow`
+(EXIF reading without the external `exiftool` binary) and
+`reverse_geocoder` (offline location grouping — pulls in `numpy`/`scipy`
+and a bundled ~35k-city dataset). Both degrade gracefully if missing —
+Pillow falls back further to file modified time, and without
+`reverse_geocoder` the "Group by location" checkbox is just disabled.
 
 `exiftool` (https://exiftool.org) is used automatically if it's on PATH or
-installed at its default Windows location — it reads EXIF from more formats
-than Pillow, including HEIC and videos. Its path is shown (and editable) in
-the app's "Tools" section.
+installed at its default Windows location — it reads EXIF (dates *and*
+GPS) from more formats than Pillow, including HEIC and videos. Its path is
+shown (and editable) in the app's "Tools" section.
 
 ---
 

@@ -34,7 +34,7 @@ call .buildenv\Scripts\activate.bat || goto :fail
 echo.
 echo === Installing build dependencies ===
 python -m pip install --upgrade pip       || goto :fail
-python -m pip install pyinstaller Pillow  || goto :fail
+python -m pip install pyinstaller Pillow reverse_geocoder  || goto :fail
 
 echo.
 echo === Building single-file executable ===
@@ -47,6 +47,7 @@ pyinstaller ^
   --windowed ^
   --noconfirm ^
   --name PhotoOrganizer ^
+  --collect-all reverse_geocoder ^
   run.py || goto :fail
 
 echo.

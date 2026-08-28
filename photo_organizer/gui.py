@@ -17,6 +17,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from . import planner
 from .dates import HAS_PIL, find_exiftool
+from .geocoding import HAS_GEOCODER
 from .models import LogTag, Operation, PlanOperation
 
 
@@ -31,6 +32,7 @@ class PhotoOrganizerApp:
         self.output_dir = tk.StringVar()
         self.operation = tk.StringVar(value=Operation.COPY.value)
         self.dry_run = tk.BooleanVar(value=True)
+        self.group_by_location = tk.BooleanVar(value=False)
         self.exiftool_path = tk.StringVar(value=find_exiftool())
 
         self.plan: list[PlanOperation] = []
@@ -60,6 +62,13 @@ class PhotoOrganizerApp:
             side='left', padx=(10, 0))
         ttk.Checkbutton(opts, text='Dry run -- only build a plan, do not copy/move',
                         variable=self.dry_run).pack(anchor='w', padx=8, pady=2)
+        chk_location = ttk.Checkbutton(
+            opts, text='Group by location -- "YYYY-MM-DD City" folders for GPS-tagged photos/videos '
+                       '(consecutive days at the same city are merged into one range folder)',
+            variable=self.group_by_location)
+        chk_location.pack(anchor='w', padx=8, pady=2)
+        if not HAS_GEOCODER:
+            chk_location.config(state='disabled')
 
         tools = ttk.LabelFrame(root, text='Tools')
         tools.pack(fill='x', **pad)
@@ -70,6 +79,9 @@ class PhotoOrganizerApp:
         pil_note = 'Pillow available (JPEG/PNG/TIFF EXIF fallback)' if HAS_PIL else \
                     'Pillow not installed -- pip install Pillow for EXIF fallback without exiftool'
         ttk.Label(tools, text=pil_note, foreground='gray').pack(anchor='w', padx=8, pady=(0, 4))
+        geocoder_note = 'reverse_geocoder available (offline location grouping)' if HAS_GEOCODER else \
+                        'reverse_geocoder not installed -- pip install reverse_geocoder to enable location grouping'
+        ttk.Label(tools, text=geocoder_note, foreground='gray').pack(anchor='w', padx=8, pady=(0, 4))
 
         btns = ttk.Frame(root); btns.pack(fill='x', **pad)
         self.analyze_btn = ttk.Button(btns, text='  Analyze / Plan  ', command=self._run_analyze)
@@ -201,6 +213,7 @@ class PhotoOrganizerApp:
                 in_dir=Path(self.input_dir.get()).resolve(),
                 out_dir=Path(self.output_dir.get()).resolve(),
                 exiftool_path=self.exiftool_path.get().strip(),
+                group_by_location=self.group_by_location.get(),
                 reporter=self,
             )
             if self.dry_run.get():

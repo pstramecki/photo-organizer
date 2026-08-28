@@ -4,7 +4,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from photo_organizer.paths import app_dir, unique_dest
+from photo_organizer.paths import app_dir, sanitize_component, unique_dest
 
 
 def test_unique_dest_returns_same_path_when_free(tmp_path):
@@ -43,6 +43,30 @@ def test_unique_dest_never_returns_the_same_candidate_twice(tmp_path):
     second = unique_dest(tmp_path / 'photo.jpg', used)
 
     assert first != second
+
+
+def test_sanitize_component_strips_illegal_characters():
+    assert sanitize_component('2015-04-28 Warsaw?') == '2015-04-28 Warsaw'
+
+
+def test_sanitize_component_collapses_internal_whitespace():
+    assert sanitize_component('Warsaw    Poland') == 'Warsaw Poland'
+
+
+def test_sanitize_component_strips_trailing_dot_and_space():
+    assert sanitize_component('Warsaw. ') == 'Warsaw'
+
+
+def test_sanitize_component_falls_back_to_unknown_when_nothing_survives():
+    assert sanitize_component('???') == 'Unknown'
+
+
+def test_sanitize_component_falls_back_to_unknown_for_all_whitespace():
+    assert sanitize_component('   ') == 'Unknown'
+
+
+def test_sanitize_component_leaves_clean_names_unchanged():
+    assert sanitize_component('Warsaw') == 'Warsaw'
 
 
 def test_app_dir_returns_a_path():
