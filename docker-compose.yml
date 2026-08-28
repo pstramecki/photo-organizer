@@ -1,0 +1,46 @@
+# =============================================================================
+#  PhotoOrganizer — Docker-based cross-platform build
+#
+#  Build a Linux binary (reliable):
+#      docker compose run --rm build-linux
+#
+#  Attempt a Windows .exe via Wine (experimental — see Dockerfile.windows):
+#      docker compose run --rm build-windows
+#
+#  Interactive dev/test container (no Python needed on the host):
+#      docker compose run --rm dev            # shell
+#      docker compose run --rm dev pytest -q  # run tests
+#
+#  Output goes to ./dist_docker/.
+#
+#  Prereq:  Docker Desktop (Windows/macOS) or Docker Engine + Compose (Linux).
+# =============================================================================
+
+services:
+
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    volumes:
+      - .:/app
+    stdin_open: true
+    tty: true
+    restart: "no"
+
+  build-linux:
+    build:
+      context: .
+      dockerfile: Dockerfile.linux
+    volumes:
+      - ./dist_docker:/output
+    # Keeps the container from lingering; we only want the build artifact.
+    restart: "no"
+
+  build-windows:
+    build:
+      context: .
+      dockerfile: Dockerfile.windows
+    volumes:
+      - ./dist_docker:/output
+    restart: "no"

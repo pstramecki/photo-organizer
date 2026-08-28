@@ -1,0 +1,30 @@
+# Personal data — this repo's input/output folders hold real photos.
+# Never send them into the Docker build context.
+input/
+output/
+
+# Don't send local build junk into the Docker build context.
+.buildenv/
+build/
+dist/
+dist_docker/
+__pycache__/
+*.pyc
+*.spec
+*.log
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+
+# VCS / IDE
+.git/
+.gitignore
+.idea/
+
+# Everything the app itself doesn't need at build time.
+README.md
+build_windows.bat
+build_unix.sh
+src/
+null

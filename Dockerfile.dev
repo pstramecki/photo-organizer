@@ -1,0 +1,29 @@
+# =============================================================================
+#  Dockerfile.dev -- interactive dev/test container.
+#
+#  Not for producing a release binary (see Dockerfile.linux / Dockerfile.windows
+#  for that). This image just has Python + Tk + the project's deps + pytest,
+#  with the repo bind-mounted in, so you can edit on the host and run/test
+#  inside the container without installing Python locally.
+#
+#  Usage (via docker-compose):
+#      docker compose run --rm dev            # interactive shell
+#      docker compose run --rm dev pytest -q  # run the test suite
+#
+#  Also used as the VS Code Dev Container (see .devcontainer/devcontainer.json)
+#  -- "Reopen in Container" gets you the same environment with editor support.
+# =============================================================================
+FROM python:3.11-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3-tk tk-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-cache-dir --upgrade pip setuptools && \
+    pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt
+
+CMD ["bash"]

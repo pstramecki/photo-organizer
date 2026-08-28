@@ -1,0 +1,36 @@
+# =============================================================================
+#  Dockerfile.windows — build a Windows .exe from Linux/macOS via Wine.
+#
+#  Status: EXPERIMENTAL.
+#
+#  Cross-compiling a Tkinter GUI for Windows on non-Windows hosts is fragile.
+#  The tobix/pywine image is a community project, not officially maintained,
+#  and Tkinter under Wine has been known to break between Wine versions.
+#
+#  If this fails, the reliable alternatives are:
+#    1. Run  build_windows.bat  once on any Windows PC with Python installed.
+#    2. Use the GitHub Actions workflow in .github/workflows/build.yml — it
+#       builds on a real Windows runner and doesn't need Docker at all.
+#
+#  Usage (via docker-compose):
+#      docker compose run --rm build-windows
+#  Output (when it works):
+#      ./dist_docker/PhotoOrganizer.exe
+# =============================================================================
+FROM tobix/pywine:3.11
+
+WORKDIR /app
+
+RUN wine pip install --no-cache-dir pyinstaller Pillow
+
+COPY photo_organizer/ ./photo_organizer/
+COPY run.py .
+
+RUN wine pyinstaller \
+        --onefile \
+        --windowed \
+        --noconfirm \
+        --name PhotoOrganizer \
+        run.py
+
+CMD ["sh", "-c", "mkdir -p /output && cp dist/PhotoOrganizer.exe /output/PhotoOrganizer.exe && echo 'Built: /output/PhotoOrganizer.exe'"]

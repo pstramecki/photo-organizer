@@ -1,0 +1,46 @@
+# Linting only -- `ruff format` is deliberately not wired into `make check`.
+#
+# target-version 3.11: every Dockerfile and the CI workflow pin Python 3.11
+# specifically -- that's the actual supported floor, kept in sync with
+# [tool.mypy] python_version below.
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # import sorting
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear (common bug patterns)
+]
+ignore = [
+    "E501",  # line length -- a few GUI layout lines run long, not worth splitting
+    "E701",  # single-line "if x: y" -- used consistently as a compact style
+    "E702",  # single-line "a; b" -- same
+]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["photo_organizer", "run.py"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+
+# Pillow's bundled type hints are incomplete in some versions; the code
+# already degrades gracefully without it via HAS_PIL.
+[[tool.mypy.overrides]]
+module = "PIL.*"
+ignore_missing_imports = true
+
+# gui.py is intentionally excluded -- it's Tkinter wiring with no display in
+# CI/the dev container, not business logic; see planner.py for what's meant
+# to be covered. __main__.py is a two-line launcher, same reasoning.
+[tool.coverage.run]
+source = ["photo_organizer"]
+omit = ["photo_organizer/gui.py", "photo_organizer/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90

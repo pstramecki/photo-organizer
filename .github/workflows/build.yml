@@ -1,0 +1,142 @@
+# =============================================================================
+#  Lint + test + cross-platform build for PhotoOrganizer.
+#
+#  Runs on real Windows / macOS / Linux GitHub-hosted runners — no Docker, no
+#  Wine tricks. Push to any branch or open a PR and artifacts appear on the
+#  workflow run page. Tag a commit with v* to attach binaries to a Release.
+#
+#  build waits on lint + test — a release binary never gets built (or
+#  attached to a tag's Release) if static analysis or the test suite fails
+#  on any platform.
+# =============================================================================
+name: build
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:     [ 'v*' ]
+  pull_request:
+  workflow_dispatch:   # allows manual runs from the GitHub UI
+
+jobs:
+  # Static analysis — source-text tools whose result doesn't depend on the
+  # OS they run on, so this runs once (Ubuntu) rather than once per platform.
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          pip install --upgrade pip setuptools
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Type check (mypy)
+        run: mypy .
+
+      - name: Security scan (bandit)
+        run: bandit -r photo_organizer run.py
+
+      - name: Dependency audit (pip-audit)
+        run: pip-audit
+
+  # Runs the actual test suite on every platform the app ships for — path
+  # handling, mtime/EXIF fallbacks etc. can behave differently per OS.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tkinter (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: Install deps
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Test with coverage (pytest-cov, fails under 90%)
+        run: pytest -q --cov --cov-report=term-missing
+
+  build:
+    needs: [lint, test]
+    # New repos default GITHUB_TOKEN to read-only, which makes the "Attach
+    # to release" step below fail with 403 "Resource not accessible by
+    # integration". This grants exactly what softprops/action-gh-release
+    # needs, regardless of the repo's default token permission setting.
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: PhotoOrganizer.exe
+            outname:  PhotoOrganizer-windows.exe
+            windowed: --windowed
+          - os: macos-latest
+            artifact: PhotoOrganizer
+            outname:  PhotoOrganizer-macos
+            windowed: --windowed
+          - os: ubuntu-latest
+            artifact: PhotoOrganizer
+            outname:  PhotoOrganizer-linux
+            windowed: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tkinter (Linux only)
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: Install build deps
+        run: pip install pyinstaller Pillow
+
+      - name: Build
+        shell: bash
+        run: |
+          pyinstaller \
+            --onefile ${{ matrix.windowed }} \
+            --noconfirm \
+            --name PhotoOrganizer \
+            run.py
+          mv dist/${{ matrix.artifact }} dist/${{ matrix.outname }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.outname }}
+          path: dist/${{ matrix.outname }}
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ matrix.outname }}

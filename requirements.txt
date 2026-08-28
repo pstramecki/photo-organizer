@@ -1,0 +1,4 @@
+# Optional. The app works without it (falls back to file modified time,
+# or to exiftool if that's installed), but Pillow adds EXIF date reading
+# for JPEG/PNG/TIFF without needing the external exiftool binary.
+Pillow>=10.0
