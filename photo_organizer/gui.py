@@ -20,6 +20,12 @@ from .dates import HAS_PIL, find_exiftool
 from .geocoding import HAS_GEOCODER
 from .models import LogTag, Operation, PlanOperation
 
+try:
+    import sv_ttk
+    HAS_SVTTK = True
+except ImportError:
+    HAS_SVTTK = False
+
 
 class PhotoOrganizerApp:
     def __init__(self, root: tk.Tk):
@@ -82,6 +88,21 @@ class PhotoOrganizerApp:
         geocoder_note = 'reverse_geocoder available (offline location grouping)' if HAS_GEOCODER else \
                         'reverse_geocoder not installed -- pip install reverse_geocoder to enable location grouping'
         ttk.Label(tools, text=geocoder_note, foreground='gray').pack(anchor='w', padx=8, pady=(0, 4))
+        theme_note = 'sv_ttk available (modern dark theme)' if HAS_SVTTK else \
+                     'sv_ttk not installed -- pip install sv_ttk for a modern dark theme'
+        ttk.Label(tools, text=theme_note, foreground='gray').pack(anchor='w', padx=8, pady=(0, 4))
+
+        maint = ttk.LabelFrame(root, text='Maintenance')
+        maint.pack(fill='x', **pad)
+        row = ttk.Frame(maint); row.pack(fill='x', padx=6, pady=4)
+        self.rebuild_index_btn = ttk.Button(row, text='Rebuild Hash Index from Output Folder...',
+                                             command=self._run_rebuild_index)
+        self.rebuild_index_btn.pack(side='left')
+        ttk.Label(maint, text='One-time catch-up for files already in Output that got there some other way '
+                              '(manual copy, migration, lost hashes.json) -- so future scans recognize them '
+                              'as duplicates instead of copying them in again. Writes hashes.json immediately, '
+                              'not gated by Dry Run.',
+                  foreground='gray', wraplength=820, justify='left').pack(anchor='w', padx=8, pady=(0, 4))
 
         btns = ttk.Frame(root); btns.pack(fill='x', **pad)
         self.analyze_btn = ttk.Button(btns, text='  Analyze / Plan  ', command=self._run_analyze)
@@ -101,13 +122,24 @@ class PhotoOrganizerApp:
         logfrm = ttk.LabelFrame(root, text='Log')
         logfrm.pack(fill='both', expand=True, **pad)
         mono = ('Consolas', 9) if os.name == 'nt' else ('Monospace', 10)
-        self.log_widget = scrolledtext.ScrolledText(logfrm, wrap='word', font=mono)
+        # ScrolledText is a classic Tk widget, not ttk -- sv_ttk's dark theme
+        # doesn't reach it automatically, so its colors (and the tag colors,
+        # chosen for contrast against that background) are set explicitly
+        # per theme rather than left at the light-mode Tk default.
+        if HAS_SVTTK:
+            log_bg, log_fg, log_cursor = '#1c1c1c', '#e0e0e0', '#e0e0e0'
+            tag_colors = {'h': '#4da3ff', 'warn': '#e0a030', 'err': '#ff6b6b', 'ok': '#5fd75f', 'dim': '#9a9a9a'}
+        else:
+            log_bg, log_fg, log_cursor = 'white', 'black', 'black'
+            tag_colors = {'h': '#005dbb', 'warn': '#a06000', 'err': '#b00020', 'ok': '#0a6b00', 'dim': '#666666'}
+        self.log_widget = scrolledtext.ScrolledText(logfrm, wrap='word', font=mono, background=log_bg,
+                                                     foreground=log_fg, insertbackground=log_cursor)
         self.log_widget.pack(fill='both', expand=True)
-        self.log_widget.tag_configure('h', foreground='#005dbb', font=(mono[0], mono[1], 'bold'))
-        self.log_widget.tag_configure('warn', foreground='#a06000')
-        self.log_widget.tag_configure('err', foreground='#b00020')
-        self.log_widget.tag_configure('ok', foreground='#0a6b00')
-        self.log_widget.tag_configure('dim', foreground='#666666')
+        self.log_widget.tag_configure('h', foreground=tag_colors['h'], font=(mono[0], mono[1], 'bold'))
+        self.log_widget.tag_configure('warn', foreground=tag_colors['warn'])
+        self.log_widget.tag_configure('err', foreground=tag_colors['err'])
+        self.log_widget.tag_configure('ok', foreground=tag_colors['ok'])
+        self.log_widget.tag_configure('dim', foreground=tag_colors['dim'])
 
         self.status = tk.StringVar(value='Ready.')
         ttk.Label(root, textvariable=self.status, relief='sunken', anchor='w').pack(fill='x', side='bottom')
@@ -204,6 +236,7 @@ class PhotoOrganizerApp:
         self.plan = []
         self.analyze_btn.config(state='disabled')
         self.apply_btn.config(state='disabled')
+        self.rebuild_index_btn.config(state='disabled')
         self.cancel_btn.config(state='normal')
         threading.Thread(target=self._analyze_thread, daemon=True).start()
 
@@ -227,6 +260,7 @@ class PhotoOrganizerApp:
         finally:
             def done():
                 self.analyze_btn.config(state='normal')
+                self.rebuild_index_btn.config(state='normal')
                 self.cancel_btn.config(state='disabled')
                 if self.plan: self.apply_btn.config(state='normal')
             self.root.after(0, done)
@@ -246,6 +280,7 @@ class PhotoOrganizerApp:
         self.stop_flag.clear()
         self.analyze_btn.config(state='disabled')
         self.apply_btn.config(state='disabled')
+        self.rebuild_index_btn.config(state='disabled')
         self.cancel_btn.config(state='normal')
         threading.Thread(target=self._apply_thread, daemon=True).start()
 
@@ -263,18 +298,53 @@ class PhotoOrganizerApp:
         finally:
             def done():
                 self.analyze_btn.config(state='normal')
+                self.rebuild_index_btn.config(state='normal')
+                self.cancel_btn.config(state='disabled')
+            self.root.after(0, done)
+
+    # ---- Rebuild hash index ----
+    def _run_rebuild_index(self):
+        if not self.output_dir.get():
+            messagebox.showerror('Missing', 'Please pick an output folder.'); return
+        if not Path(self.output_dir.get()).is_dir():
+            messagebox.showerror('Missing', 'Output folder does not exist.'); return
+        if not messagebox.askyesno('Rebuild hash index',
+                                   f'This scans every file already under:\n{self.output_dir.get()}\n\n'
+                                   'and writes hashes.json immediately (this is not gated by Dry Run). '
+                                   'Continue?'):
+            return
+        self.stop_flag.clear()
+        self.analyze_btn.config(state='disabled')
+        self.apply_btn.config(state='disabled')
+        self.rebuild_index_btn.config(state='disabled')
+        self.cancel_btn.config(state='normal')
+        threading.Thread(target=self._rebuild_index_thread, daemon=True).start()
+
+    def _rebuild_index_thread(self):
+        try:
+            planner.rebuild_hash_index(Path(self.output_dir.get()).resolve(), reporter=self)
+        except Exception as e:
+            self.log(f'ERROR: {e}', 'err')
+            self.log(traceback.format_exc(), 'err')
+        finally:
+            def done():
+                self.analyze_btn.config(state='normal')
+                self.rebuild_index_btn.config(state='normal')
                 self.cancel_btn.config(state='disabled')
             self.root.after(0, done)
 
 
 def main():
     root = tk.Tk()
-    style = ttk.Style()
-    for theme in ('vista', 'clam', 'alt'):
-        if theme in style.theme_names():
-            try:
-                style.theme_use(theme); break
-            except tk.TclError:
-                pass
+    if HAS_SVTTK:
+        sv_ttk.set_theme('dark')
+    else:
+        style = ttk.Style()
+        for theme in ('vista', 'clam', 'alt'):
+            if theme in style.theme_names():
+                try:
+                    style.theme_use(theme); break
+                except tk.TclError:
+                    pass
     PhotoOrganizerApp(root)
     root.mainloop()

@@ -117,7 +117,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y python3-tk
 
       - name: Install build deps
-        run: pip install pyinstaller Pillow reverse_geocoder
+        run: pip install pyinstaller Pillow reverse_geocoder sv_ttk
 
       - name: Build
         shell: bash
@@ -127,6 +127,7 @@ jobs:
             --noconfirm \
             --name PhotoOrganizer \
             --collect-all reverse_geocoder \
+            --collect-all sv_ttk \
             run.py
           mv dist/${{ matrix.artifact }} dist/${{ matrix.outname }}
 

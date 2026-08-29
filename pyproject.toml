@@ -40,6 +40,12 @@ ignore_missing_imports = true
 module = "reverse_geocoder.*"
 ignore_missing_imports = true
 
+# sv_ttk ships no type stubs; the code already degrades gracefully
+# without it via HAS_SVTTK.
+[[tool.mypy.overrides]]
+module = "sv_ttk.*"
+ignore_missing_imports = true
+
 # gui.py is intentionally excluded -- it's Tkinter wiring with no display in
 # CI/the dev container, not business logic; see planner.py for what's meant
 # to be covered. __main__.py is a two-line launcher, same reasoning.

@@ -18,10 +18,20 @@ the sibling [`video-organizer`](../video-organizer) project.
     └── 2020/<videos from 2020>
 ```
 
-Date comes from EXIF `DateTimeOriginal` when available, otherwise the
-file's last-modified time. Duplicate content (by SHA-256) is skipped and
-tracked in `<OUTPUT>/hashes.json`, so re-running the tool on the same input
-never copies the same photo twice — even across separate runs.
+Date comes from EXIF `DateTimeOriginal` (or `CreateDate` for videos, which
+don't carry `DateTimeOriginal`) when available, otherwise the file's
+last-modified time. Duplicate content (by SHA-256) is skipped and tracked
+in `<OUTPUT>/hashes.json`, so re-running the tool on the same input never
+copies the same photo twice — even across separate runs.
+
+That duplicate check only knows about files this tool has copied/moved
+itself. A photo already in `<OUTPUT>` some other way — a manual copy, a
+migration from another tool, a lost `hashes.json` — won't be recognized,
+and re-scanning the same photo from `<INPUT>` will copy it in again under
+a different name. Click **"Rebuild Hash Index from Output Folder..."**
+(Maintenance section) to hash everything already in `<OUTPUT>` and fold it
+into `hashes.json` — a one-time catch-up, not something you need on every
+run. It writes `hashes.json` immediately, so it isn't gated by Dry Run.
 
 ### Optional: group by location
 

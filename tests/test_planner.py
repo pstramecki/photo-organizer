@@ -12,8 +12,17 @@ from pathlib import Path
 
 import pytest
 
-from photo_organizer import HashDb, MediaKind, Operation, PlanOperation, analyze, apply_plan
+from photo_organizer import (
+    HashDb,
+    MediaKind,
+    Operation,
+    PlanOperation,
+    analyze,
+    apply_plan,
+    rebuild_hash_index,
+)
 from photo_organizer.dates import get_file_date
+from photo_organizer.hashdb import hash_file
 from photo_organizer.planner import _consecutive_day_runs
 
 
@@ -497,3 +506,99 @@ def test_analyze_groups_by_the_sanitized_city_name_consistently(tmp_path, monkey
     assert len(plan) == 2
     # Consecutive days, same sanitized city -> merged into one range folder.
     assert {op.dest.parent for op in plan} == {out_dir / '2015' / '04' / '2015-04-28-29 Warsaw'}
+
+
+# ---- rebuild_hash_index() ----
+
+def test_rebuild_hash_index_adds_hashes_for_existing_files(tmp_path):
+    out_dir = tmp_path / 'out'
+    _make_file(out_dir / '2020' / '01' / 'a.jpg', b'content-a')
+    _make_file(out_dir / '2020' / '01' / 'b.jpg', b'content-b')
+
+    added = rebuild_hash_index(out_dir, reporter=FakeReporter())
+
+    assert added == 2
+    db = HashDb(out_dir)
+    db.load()
+    assert hashlib.sha256(b'content-a').hexdigest() in db
+    assert hashlib.sha256(b'content-b').hexdigest() in db
+
+
+def test_rebuild_hash_index_does_not_recount_already_known_hashes(tmp_path):
+    out_dir = tmp_path / 'out'
+    _make_file(out_dir / 'a.jpg', b'content-a')
+
+    db = HashDb(out_dir)
+    db.add(hashlib.sha256(b'content-a').hexdigest(), 'wherever')
+    db.save()
+
+    added = rebuild_hash_index(out_dir, reporter=FakeReporter())
+
+    assert added == 0
+
+
+def test_rebuild_hash_index_skips_hashes_json_itself(tmp_path):
+    out_dir = tmp_path / 'out'
+    _make_file(out_dir / 'a.jpg', b'content-a')
+
+    reporter = FakeReporter()
+    rebuild_hash_index(out_dir, reporter=reporter)  # writes hashes.json
+    added = rebuild_hash_index(out_dir, reporter=reporter)  # second pass must not hash its own index file
+
+    assert added == 0
+
+
+def test_rebuild_hash_index_handles_missing_output_dir(tmp_path):
+    added = rebuild_hash_index(tmp_path / 'does-not-exist', reporter=FakeReporter())
+    assert added == 0
+
+
+def test_rebuild_hash_index_logs_error_and_continues_when_a_file_cannot_be_read(tmp_path, monkeypatch):
+    out_dir = tmp_path / 'out'
+    _make_file(out_dir / 'a.jpg', b'content-a')
+    _make_file(out_dir / 'b.jpg', b'content-b')
+
+    def flaky_hash_file(path, chunk_size=1024 * 1024):
+        if path.name == 'a.jpg':
+            raise OSError('permission denied')
+        return hash_file(path, chunk_size)
+
+    monkeypatch.setattr('photo_organizer.planner.hash_file', flaky_hash_file)
+
+    reporter = FakeReporter()
+    added = rebuild_hash_index(out_dir, reporter=reporter)
+
+    assert added == 1  # b.jpg still indexed despite a.jpg's error
+    assert reporter.has_log_containing('Could not read', tag='err')
+
+
+def test_rebuild_hash_index_stops_when_cancelled(tmp_path):
+    out_dir = tmp_path / 'out'
+    _make_file(out_dir / 'a.jpg', b'content-a')
+    _make_file(out_dir / 'b.jpg', b'content-b')
+
+    reporter = FakeReporter()
+    reporter.stop = True
+
+    added = rebuild_hash_index(out_dir, reporter=reporter)
+
+    assert added == 0
+    assert reporter.has_log_containing('Cancelled', tag='warn')
+
+
+def test_rebuild_hash_index_lets_analyze_recognize_a_pre_existing_output_file_as_duplicate(tmp_path):
+    # The actual point of the feature: a photo that ended up in Output some
+    # other way than through this tool (manual copy, migration, lost
+    # hashes.json) should be recognized as a duplicate on a later scan,
+    # instead of being copied in again under a different name.
+    in_dir, out_dir = tmp_path / 'in', tmp_path / 'out'
+    _make_file(out_dir / '2020' / '01' / 'already-here.jpg', b'same-bytes')  # arrived by some other means
+    _make_file(in_dir / 'new-name.jpg', b'same-bytes', mtime=datetime(2020, 1, 1))
+
+    rebuild_hash_index(out_dir, reporter=FakeReporter())
+
+    reporter = FakeReporter()
+    plan = analyze(in_dir=in_dir, out_dir=out_dir, exiftool_path='', reporter=reporter)
+
+    assert plan == []  # recognized as a duplicate, not copied in under a new name
+    assert reporter.has_log_containing('[Duplicate]', tag='warn')

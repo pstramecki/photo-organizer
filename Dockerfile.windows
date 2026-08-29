@@ -21,7 +21,7 @@ FROM tobix/pywine:3.11
 
 WORKDIR /app
 
-RUN wine pip install --no-cache-dir pyinstaller Pillow reverse_geocoder
+RUN wine pip install --no-cache-dir pyinstaller Pillow reverse_geocoder sv_ttk
 
 COPY photo_organizer/ ./photo_organizer/
 COPY run.py .
@@ -32,6 +32,7 @@ RUN wine pyinstaller \
         --noconfirm \
         --name PhotoOrganizer \
         --collect-all reverse_geocoder \
+        --collect-all sv_ttk \
         run.py
 
 CMD ["sh", "-c", "mkdir -p /output && cp dist/PhotoOrganizer.exe /output/PhotoOrganizer.exe && echo 'Built: /output/PhotoOrganizer.exe'"]

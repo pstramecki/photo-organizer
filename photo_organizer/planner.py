@@ -259,6 +259,61 @@ def analyze(*, in_dir: Path, out_dir: Path, exiftool_path: str, group_by_locatio
     return plan
 
 
+def rebuild_hash_index(out_dir: Path, reporter: ProgressReporter) -> int:
+    """Hash every file already under out_dir and merge into hashes.json --
+    a one-time catch-up for files that ended up there some other way than
+    through this tool (a manual copy, a migration, a lost hashes.json), so
+    a future analyze() correctly recognizes them as duplicates instead of
+    copying them in again under a different name.
+
+    Unlike analyze(), this writes hashes.json immediately -- it's a
+    standalone maintenance action with its own confirmation in the GUI,
+    not part of the Analyze/Apply flow, so it isn't gated by Dry Run.
+    Returns the number of newly-added hashes.
+    """
+    hash_db = HashDb(out_dir)
+    hash_db.load()
+    known_before = len(hash_db.data)
+
+    reporter.log('=' * 80, 'h')
+    reporter.log(f'Rebuilding hash index from: {out_dir}', 'h')
+    reporter.log('=' * 80, 'h')
+
+    if not out_dir.exists():
+        reporter.log('Output folder does not exist yet -- nothing to index.', 'warn')
+        reporter.set_status('Nothing to index.')
+        return 0
+
+    files = sorted(p for p in out_dir.rglob('*') if p.is_file() and p.name != 'hashes.json')
+    reporter.log(f'Found {len(files)} existing files.')
+    reporter.set_progress(0, len(files))
+
+    added = 0
+    for i, f in enumerate(files, 1):
+        if reporter.should_stop():
+            reporter.log('Cancelled.', 'warn')
+            break
+        reporter.set_status(f'Hashing {i}/{len(files)}: {f.name}')
+        try:
+            digest = hash_file(f)
+        except OSError as e:
+            reporter.log(f'[Error] Could not read {f}: {e}', 'err')
+            reporter.set_progress(i)
+            continue
+        if digest not in hash_db:
+            hash_db.add(digest, str(f))
+            added += 1
+        reporter.set_progress(i)
+
+    hash_db.save()
+    reporter.log('')
+    reporter.log(f'Indexed {len(files)} existing files -- {added} new, '
+                 f'{known_before} already known, {len(hash_db.data)} total tracked.', 'h')
+    reporter.set_status(f'Hash index rebuilt: {added} new hashes added.')
+    reporter.set_progress(0)
+    return added
+
+
 def apply_plan(plan: list[PlanOperation], *, operation: Operation, out_dir: Path,
                 reporter: ProgressReporter) -> tuple[int, int, int]:
     """Copy or move every planned file. An existing destination is

@@ -1,8 +1,10 @@
-# Both optional. The app works without them -- Pillow adds EXIF date
+# All optional. The app works without them -- Pillow adds EXIF date
 # reading for JPEG/PNG/TIFF without needing the external exiftool binary
 # (falls back to file modified time if neither is available). reverse_geocoder
 # enables "Group by location" (offline reverse geocoding -- pulls in numpy
 # and scipy, plus a bundled ~35k-city dataset); without it the checkbox is
-# just disabled in the app.
+# just disabled in the app. sv_ttk gives the GUI a modern dark theme; without
+# it the app falls back to the native ttk theme (vista/clam/alt).
 Pillow>=10.0
 reverse_geocoder>=1.5
+sv_ttk>=2.6

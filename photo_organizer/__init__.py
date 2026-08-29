@@ -9,7 +9,14 @@ from .gps import get_gps
 from .hashdb import HashDb, hash_file
 from .models import DateSource, LogTag, MediaKind, Operation, PlanOperation
 from .paths import app_dir, sanitize_component, unique_dest
-from .planner import PHOTO_EXTENSIONS, VIDEO_EXTENSIONS, ProgressReporter, analyze, apply_plan
+from .planner import (
+    PHOTO_EXTENSIONS,
+    VIDEO_EXTENSIONS,
+    ProgressReporter,
+    analyze,
+    apply_plan,
+    rebuild_hash_index,
+)
 
 __all__ = [
     'HAS_GEOCODER',
@@ -33,6 +40,7 @@ __all__ = [
     'get_gps',
     'hash_file',
     'parse_exif_datetime',
+    'rebuild_hash_index',
     'sanitize_component',
     'unique_dest',
 ]

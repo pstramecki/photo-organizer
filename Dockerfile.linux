@@ -18,7 +18,7 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir pyinstaller Pillow reverse_geocoder
+RUN pip install --no-cache-dir pyinstaller Pillow reverse_geocoder sv_ttk
 
 COPY photo_organizer/ ./photo_organizer/
 COPY run.py .
@@ -31,6 +31,7 @@ RUN pyinstaller \
         --noconfirm \
         --name PhotoOrganizer \
         --collect-all reverse_geocoder \
+        --collect-all sv_ttk \
         run.py
 
 # Container run copies the built binary to the mounted /output volume.
